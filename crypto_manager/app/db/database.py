@@ -30,7 +30,24 @@ def init_db():
         print(table["name"])
     conn.close()
 
+def execute_query(query, params=()):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        conn.commit()
+    finally:
+        conn.close()
 
+def fetch_query(query, params=()):
+
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        return cursor.fetchall()
+    finally:
+        conn.close()
 
 if __name__=="__main__":
     init_db()
