@@ -27,7 +27,7 @@ class CryptoApp:
         self.lbl_status = tk.Label(frame_top, text="Selecteaza un fisier pentru a-l salva in SQL", fg="gray")
         self.lbl_status.pack(side="left", padx=10)
 
-        frame_middle = tk.LabelFrame(self.root, text="Pasul 2: Operatii Criptare (Placeholder pentru Sapt. 3)", padx=10,
+        frame_middle = tk.LabelFrame(self.root, text="Pasul 2: Operatii Criptare", padx=10,
                                      pady=10)
         frame_middle.pack(fill="x", padx=20, pady=5)
 
