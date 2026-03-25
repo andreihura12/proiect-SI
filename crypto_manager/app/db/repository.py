@@ -50,3 +50,10 @@ class CryptoRepository:
         query = "INSERT INTO Performance (operation_id, memory, execution_time) VALUES (?, ?, ?)"
         params = (perf.operation_id, perf.memory, perf.execution_time)
         execute_query(query, params)
+
+    @staticmethod
+    def update_file_status(file_id, new_status):
+        query = "UPDATE Files SET status = ? WHERE id = ?"
+        params = (new_status, file_id)
+        execute_query(query, params)
+

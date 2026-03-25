@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS Files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     filename TEXT NOT NULL,
     path TEXT NOT NULL,
+    status TEXT DEFAULT 'Necriptat',
     file_type TEXT,
     size_bytes INTEGER,
     hash TEXT,

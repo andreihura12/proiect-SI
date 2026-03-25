@@ -4,6 +4,7 @@ class FileModel:
         id=None,
         filename="",
         path="",
+        status="necriptat",
         file_type="",
         size_bytes=0,
         hash="",
@@ -12,6 +13,7 @@ class FileModel:
         self.id = id
         self.filename = filename
         self.path = path
+        self.status=status
         self.file_type = file_type
         self.size_bytes = size_bytes
         self.hash = hash
