@@ -56,4 +56,8 @@ class CryptoRepository:
         query = "UPDATE Files SET status = ? WHERE id = ?"
         params = (new_status, file_id)
         execute_query(query, params)
+    @staticmethod
+    def get_file_by_id(file_id):
+        rows = fetch_query("SELECT * FROM Files WHERE id = ?", (file_id,))
+        return FileModel(**dict(rows[0])) if rows else None
 

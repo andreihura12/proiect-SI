@@ -1,8 +1,10 @@
 import tkinter as tk
+import os
 from tkinter import filedialog, messagebox, ttk
 from app.services.file_service import FileService
 from app.db.repository import CryptoRepository
 from app.models.file_model import FileModel
+from app.crypto.openssl_handler import OpenSSLHandler
 
 
 class CryptoApp:
@@ -13,6 +15,7 @@ class CryptoApp:
 
         self.file_service = FileService()
         self.repo = CryptoRepository()
+        self.openssl_handler = OpenSSLHandler()
 
         self.setup_ui()
 
@@ -93,14 +96,34 @@ class CryptoApp:
         item_data = self.tree.item(selected_item)
         file_id = item_data['values'][0]
         algo_chosen = self.combo_algo.get()
-        new_status = f"Criptat cu {algo_chosen}"
+
+        if "AES" not in algo_chosen:
+            messagebox.showwarning("Algoritm indisponibil", "Momentan este implementata doar criptarea AES cu OpenSSL.")
+            return
 
         try:
+            file_record = self.repo.get_file_by_id(file_id)
+            if not file_record:
+                messagebox.showerror("Eroare", "Fisierul nu a fost gasit in baza de date.")
+                return
+
+            input_path = file_record.path
+            output_path = input_path + ".enc"
+            password = "parola123"
+
+            self.openssl_handler.encrypt_aes(input_path, output_path, password)
+
+            new_status = f"Criptat cu {algo_chosen}"
             self.repo.update_file_status(file_id, new_status)
 
             self.refresh_table()
-            messagebox.showinfo("Update DB", f"Statusul a fost actualizat in: {new_status}")
+            messagebox.showinfo(
+                "Succes",
+                f"Fisierul a fost criptat cu succes.\nFisier nou: {output_path}"
+            )
+
         except Exception as e:
+            messagebox.showerror("Eroare criptare", f"A aparut o eroare: {e}")
             messagebox.showerror("Eroare Update", f"A aparut o eroare: {e}")
 
     def decrypt_action(self):
@@ -112,20 +135,45 @@ class CryptoApp:
         item_data = self.tree.item(selected_item)
         file_id = item_data['values'][0]
         current_status = item_data['values'][2]
+        algo_chosen = self.combo_algo.get()
 
         if "Criptat" not in current_status:
-            messagebox.showwarning("Operatie Invalida", "Fisierul este deja necriptat!")
+            messagebox.showwarning("Operatie invalida", "Fisierul selectat nu apare ca fiind criptat.")
             return
 
-        new_status = "Necriptat"
+        if "AES" not in algo_chosen:
+            messagebox.showwarning("Algoritm indisponibil",
+                                   "Momentan este implementata doar decriptarea AES cu OpenSSL.")
+            return
 
         try:
-            self.repo.update_file_status(file_id, new_status)
+            file_record = self.repo.get_file_by_id(file_id)
+            if not file_record:
+                messagebox.showerror("Eroare", "Fisierul nu a fost gasit in baza de date.")
+                return
+
+            original_path = file_record.path
+            encrypted_path = original_path + ".enc"
+            name, ext = os.path.splitext(original_path)
+            decrypted_path = name + "_decriptat" + ext
+            password = "parola123"
+
+            if not os.path.exists(encrypted_path):
+                messagebox.showerror("Eroare", f"Fisierul criptat nu exista:\n{encrypted_path}")
+                return
+
+            self.openssl_handler.decrypt_aes(encrypted_path, decrypted_path, password)
+
+            self.repo.update_file_status(file_id, "Necriptat")
 
             self.refresh_table()
-            messagebox.showinfo("Update DB", "Fisierul a fost decriptat cu succes in baza de date!")
+            messagebox.showinfo(
+                "Succes",
+                f"Fisierul a fost decriptat cu succes.\nFisier rezultat: {decrypted_path}"
+            )
+
         except Exception as e:
-            messagebox.showerror("Eroare Update", f"A aparut o eroare: {e}")
+            messagebox.showerror("Eroare decriptare", f"A aparut o eroare: {e}")
 
     def refresh_table(self):
         for item in self.tree.get_children():
