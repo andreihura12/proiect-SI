@@ -34,7 +34,8 @@ class CryptoApp:
         frame_middle.pack(fill="x", padx=20, pady=5)
 
         tk.Label(frame_middle, text="Algoritm:").grid(row=0, column=0)
-        self.combo_algo = ttk.Combobox(frame_middle, values=["AES (OpenSSL)", "RSA (OpenSSL)"])
+        self.combo_algo = ttk.Combobox(frame_middle, values=["AES (OpenSSL)", "RSA (OpenSSL)", "AES (Cryptography Library)",  # Varianta 3
+    "RSA (Cryptography Library)" ])
         self.combo_algo.set("AES (OpenSSL)")
         self.combo_algo.grid(row=0, column=1, padx=5)
 
@@ -90,16 +91,12 @@ class CryptoApp:
     def crypt_action(self):
         selected_item = self.tree.selection()
         if not selected_item:
-            messagebox.showwarning("Atentie", "Selecteaza un fisier din tabel pentru a-l cripta!")
+            messagebox.showwarning("Atentie", "Selecteaza un fisier din tabel!")
             return
 
         item_data = self.tree.item(selected_item)
         file_id = item_data['values'][0]
         algo_chosen = self.combo_algo.get()
-
-        if "AES" not in algo_chosen:
-            messagebox.showwarning("Algoritm indisponibil", "Momentan este implementata doar criptarea AES cu OpenSSL.")
-            return
 
         try:
             file_record = self.repo.get_file_by_id(file_id)
@@ -108,23 +105,109 @@ class CryptoApp:
                 return
 
             input_path = file_record.path
-            output_path = input_path + ".enc"
-            password = "parola123"
+            from app.models.key_model import KeyModel
+            import time
 
-            self.openssl_handler.encrypt_aes(input_path, output_path, password)
+            start_time = time.time()
+            key_id = None
+            framework_id = 1
+            if algo_chosen == "AES (OpenSSL)":
+                output_path = input_path + ".enc"
+                password = "parola123"
+                self.openssl_handler.encrypt_aes(input_path, output_path, password)
 
-            new_status = f"Criptat cu {algo_chosen}"
-            self.repo.update_file_status(file_id, new_status)
+                # Salvăm cheia (parola) în DB
+                new_key = KeyModel(algorithm_id=1, key_name=f"AES_Pass_{file_id}",
+                                   key_type="Symmetric", key_path=password, is_active=1)
+                key_id = self.repo.create_key(new_key)
 
-            self.refresh_table()
-            messagebox.showinfo(
-                "Succes",
-                f"Fisierul a fost criptat cu succes.\nFisier nou: {output_path}"
+            elif algo_chosen == "RSA (OpenSSL)":
+                output_path = input_path + ".rsa"
+                if not os.path.exists("keys"): os.makedirs("keys")
+                priv_key_path = f"keys/private_{file_id}.pem"
+                pub_key_path = f"keys/public_{file_id}.pem"
+
+                self.openssl_handler.generate_rsa_keys(priv_key_path, pub_key_path)
+                self.openssl_handler.encrypt_rsa(input_path, output_path, pub_key_path)
+
+                new_key = KeyModel(algorithm_id=2, key_name=f"RSA_Key_{file_id}",
+                                   key_type="Asymmetric", key_path=priv_key_path, is_active=1)
+                key_id = self.repo.create_key(new_key)
+
+            elif algo_chosen == "AES (Cryptography Library)":
+                from cryptography.fernet import Fernet
+                framework_id = 2
+                output_path = input_path + ".crypt"
+
+                key = Fernet.generate_key()
+                f = Fernet(key)
+                with open(input_path, "rb") as file:
+                    data = file.read()
+                encrypted_data = f.encrypt(data)
+                with open(output_path, "wb") as file:
+                    file.write(encrypted_data)
+
+                new_key = KeyModel(algorithm_id=1, key_name=f"Fernet_Key_{file_id}",
+                                   key_type="Symmetric", key_path=key.decode(), is_active=1)
+                key_id = self.repo.create_key(new_key)
+
+            # --- CAZ 4: RSA (Cryptography Library - Varianta 3: Wrapper) ---
+            elif algo_chosen == "RSA (Cryptography Library)":
+                from cryptography.hazmat.primitives.asymmetric import rsa, padding
+                from cryptography.hazmat.primitives import hashes, serialization
+                framework_id = 2
+                output_path = input_path + ".lib_rsa"
+
+                # Generare și Criptare
+                priv_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                with open(input_path, "rb") as file:
+                    data = file.read()
+                encrypted = priv_key.public_key().encrypt(
+                    data, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                                       algorithm=hashes.SHA256(), label=None)
+                )
+                with open(output_path, "wb") as file:
+                    file.write(encrypted)
+
+                # Salvare cheie privată PEM
+                if not os.path.exists("keys"): os.makedirs("keys")
+                priv_key_path = f"keys/priv_lib_{file_id}.pem"
+                with open(priv_key_path, "wb") as f:
+                    f.write(priv_key.private_bytes(encoding=serialization.Encoding.PEM,
+                                                   format=serialization.PrivateFormat.PKCS8,
+                                                   encryption_algorithm=serialization.NoEncryption()))
+
+                new_key = KeyModel(algorithm_id=2, key_name=f"RSA_Lib_{file_id}",
+                                   key_type="Asymmetric", key_path=priv_key_path, is_active=1)
+                key_id = self.repo.create_key(new_key)
+
+            # --- FINALIZARE: Update DB, Hash și Operations ---
+            # 1. Calculăm Hash-ul fișierului criptat (pentru audit)
+            import hashlib
+            with open(output_path, "rb") as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()
+
+            # 2. Update status și hash în tabelul Files
+            self.repo.update_file_status(file_id, f"Criptat ({algo_chosen})")
+            self.repo.update_file_hash(file_id, file_hash)  # Presupunem că ai metoda asta
+
+            # 3. Log în tabelul Operations (Management funcțional)
+            exec_time = int((time.time() - start_time) * 1000)
+            self.repo.log_operation(
+                file_id=file_id,
+                algo_id=(1 if "AES" in algo_chosen else 2),
+                framework_id=framework_id,
+                key_id=key_id,
+                op_type="Encryption",
+                in_path=input_path,
+                out_path=output_path
             )
 
+            self.refresh_table()
+            messagebox.showinfo("Succes", f"Fișier criptat cu succes!\nExecuție: {exec_time}ms")
+
         except Exception as e:
-            messagebox.showerror("Eroare criptare", f"A aparut o eroare: {e}")
-            messagebox.showerror("Eroare Update", f"A aparut o eroare: {e}")
+            messagebox.showerror("Eroare criptare", f"A aparut o eroare: {str(e)}")
 
     def decrypt_action(self):
         selected_item = self.tree.selection()
@@ -135,42 +218,39 @@ class CryptoApp:
         item_data = self.tree.item(selected_item)
         file_id = item_data['values'][0]
         current_status = item_data['values'][2]
-        algo_chosen = self.combo_algo.get()
 
-        if "Criptat" not in current_status:
-            messagebox.showwarning("Operatie invalida", "Fisierul selectat nu apare ca fiind criptat.")
-            return
-
-        if "AES" not in algo_chosen:
-            messagebox.showwarning("Algoritm indisponibil",
-                                   "Momentan este implementata doar decriptarea AES cu OpenSSL.")
+        if "Necriptat" in current_status:
+            messagebox.showwarning("Operatie invalida", "Fisierul nu este criptat.")
             return
 
         try:
             file_record = self.repo.get_file_by_id(file_id)
-            if not file_record:
-                messagebox.showerror("Eroare", "Fisierul nu a fost gasit in baza de date.")
-                return
-
             original_path = file_record.path
-            encrypted_path = original_path + ".enc"
-            name, ext = os.path.splitext(original_path)
-            decrypted_path = name + "_decriptat" + ext
-            password = "parola123"
 
-            if not os.path.exists(encrypted_path):
-                messagebox.showerror("Eroare", f"Fisierul criptat nu exista:\n{encrypted_path}")
-                return
+            if "AES" in current_status:
+                encrypted_path = original_path + ".enc"
+                decrypted_path = os.path.splitext(original_path)[0] + "_dec_aes" + os.path.splitext(original_path)[1]
+                self.openssl_handler.decrypt_aes(encrypted_path, decrypted_path, "parola123")
 
-            self.openssl_handler.decrypt_aes(encrypted_path, decrypted_path, password)
+            elif "RSA" in current_status:
+                encrypted_path = original_path + ".rsa"
+                decrypted_path = os.path.splitext(original_path)[0] + "_dec_rsa" + os.path.splitext(original_path)[1]
+
+
+                priv_key_path = f"keys/private_{file_id}.pem"
+
+                if not os.path.exists(priv_key_path):
+                    messagebox.showerror("Eroare", "Cheia privata nu a fost gasita!")
+                    return
+
+                self.openssl_handler.decrypt_rsa(encrypted_path, decrypted_path, priv_key_path)
 
             self.repo.update_file_status(file_id, "Necriptat")
-
             self.refresh_table()
-            messagebox.showinfo(
-                "Succes",
-                f"Fisierul a fost decriptat cu succes.\nFisier rezultat: {decrypted_path}"
-            )
+            messagebox.showinfo("Succes", f"Decriptare reușită!\nRezultat: {decrypted_path}")
+
+        except Exception as e:
+            messagebox.showerror("Eroare decriptare", f"A aparut o eroare: {e}")
 
         except Exception as e:
             messagebox.showerror("Eroare decriptare", f"A aparut o eroare: {e}")

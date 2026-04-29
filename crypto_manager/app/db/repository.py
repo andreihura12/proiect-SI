@@ -36,14 +36,37 @@ class CryptoRepository:
         rows = fetch_query("SELECT * FROM Algorithms WHERE name = ?", (name,))
         return AlgorithmModel(**dict(rows[0])) if rows else None
 
-
     @staticmethod
     def create_key(key: KeyModel):
         query = """INSERT INTO Keys (algorithm_id, key_name, key_type, key_path, is_active) 
-                   VALUES (?, ?, ?, ?, ?)"""
+                       VALUES (?, ?, ?, ?, ?)"""
         params = (key.algorithm_id, key.key_name, key.key_type, key.key_path, key.is_active)
+
+
+        from app.db.database import get_connection
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        conn.commit()
+        last_id = cursor.lastrowid  # Luăm ID-ul cheii tocmai inserate
+        conn.close()
+        return last_id
+
+    @staticmethod
+    def update_file_hash(file_id, new_hash):
+        """Metoda care lipsea și cauza eroarea din imagine"""
+        query = "UPDATE Files SET hash = ? WHERE id = ?"
+        params = (new_hash, file_id)
         execute_query(query, params)
 
+    @staticmethod
+    def log_operation(file_id, algo_id, framework_id, key_id, op_type, in_path, out_path):
+        """Salvează istoricul în tabelul Operations (Management funcțional)"""
+        query = """INSERT INTO Operations (file_id, algorithm_id, framework_id, key_id, 
+                       operation_type, input_path, output_path, status) 
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
+        params = (file_id, algo_id, framework_id, key_id, op_type, in_path, out_path, 'Succes')
+        execute_query(query, params)
 
     @staticmethod
     def log_performance(perf: PerformanceModel):
