@@ -33,8 +33,6 @@ class OpenSSLHandler:
         cmd_priv = ["openssl", "genpkey", "-algorithm", "RSA", "-out", private_key_path, "-pkeyopt",
                     "rsa_keygen_bits:2048"]
         result_priv = subprocess.run(cmd_priv, capture_output=True, text=True)
-
-        # 2. Extragem cheia publică
         cmd_pub = ["openssl", "rsa", "-pubout", "-in", private_key_path, "-out", public_key_path]
         result_pub = subprocess.run(cmd_pub, capture_output=True, text=True)
 

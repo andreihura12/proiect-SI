@@ -12,7 +12,6 @@ def get_connection():
     return conn
 
 def init_db():
-    # 1. Resetăm baza de date pentru a aplica schema nouă (Clean Slate)
     if DB_PATH.exists():
         try:
             os.remove(DB_PATH)
@@ -28,15 +27,11 @@ def init_db():
     cursor = conn.cursor()
 
     try:
-        # 2. Executăm scriptul SQL pentru crearea tabelelor
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             sql_script = f.read()
         conn.executescript(sql_script)
         conn.commit()
         print("Tabelele au fost create conform schemei.")
-
-        # 3. POPULARE ALGORITMI (Respectând coloanele tale: id, name, type, key_size, mode)
-        # Am pus ID-urile manual ca să fim siguri că se pupă cu ce trimiți din GUI
         cursor.execute("""
             INSERT INTO Algorithms (id, name, type, key_size, mode) 
             VALUES (1, 'AES-256', 'Symmetric', 256, 'CBC')
@@ -46,14 +41,13 @@ def init_db():
             VALUES (2, 'RSA-2048', 'Asymmetric', 2048, 'OAEP')
         """)
 
-        # 4. POPULARE FRAMEWORKS (Cerința cu varianta 2 și 3)
+
         cursor.execute("INSERT INTO Frameworks (id, name, version) VALUES (1, 'OpenSSL (Subprocess)', '3.x')")
         cursor.execute("INSERT INTO Frameworks (id, name, version) VALUES (2, 'Cryptography (Wrapper)', '42.0')")
 
         conn.commit()
         print("Algoritmii și Framework-urile au fost inserate cu succes.")
 
-        # Vizualizare tabele pentru confirmare
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
         tables = cursor.fetchall()
         print("\nTabele identificate în DB:")
