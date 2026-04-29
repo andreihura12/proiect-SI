@@ -7,7 +7,6 @@ from app.models.performance_model import PerformanceModel
 
 class CryptoRepository:
 
-    # --- MANAGEMENT FISIERE ---
     @staticmethod
     def create_file(file: FileModel):
         query = """INSERT INTO Files (filename, path, file_type, size_bytes, hash) 
@@ -27,6 +26,12 @@ class CryptoRepository:
 
     @staticmethod
     def delete_file(file_id):
+        execute_query("""
+                DELETE FROM Performance WHERE operation_id IN (
+                    SELECT id FROM Operations WHERE file_id = ?
+                )""", (file_id,))
+
+        execute_query("DELETE FROM Operations WHERE file_id = ?", (file_id,))
         execute_query("DELETE FROM Files WHERE id = ?", (file_id,))
 
     @staticmethod
@@ -39,10 +44,8 @@ class CryptoRepository:
         query = "UPDATE Files SET hash = ? WHERE id = ?"
         execute_query(query, (new_hash, file_id))
 
-    # --- MANAGEMENT CHEI ---
     @staticmethod
     def create_key(key: KeyModel):
-        """Inserează cheia și returnează ID-ul generat (CRUCIAL pentru Operations)"""
         query = """INSERT INTO Keys (algorithm_id, key_name, key_type, key_path, is_active) 
                    VALUES (?, ?, ?, ?, ?)"""
         params = (key.algorithm_id, key.key_name, key.key_type, key.key_path, key.is_active)
@@ -57,19 +60,16 @@ class CryptoRepository:
 
     @staticmethod
     def get_all_keys():
-        """Aduce toate cheile pentru dropdown-ul din GUI"""
         rows = fetch_query("SELECT * FROM Keys WHERE is_active = 1")
         return [KeyModel(**dict(row)) for row in rows]
 
     @staticmethod
     def get_key_by_id(key_id):
-        """Aduce detaliile unei chei (folosit la Debug și Decriptare)"""
         rows = fetch_query("SELECT * FROM Keys WHERE id = ?", (key_id,))
         return KeyModel(**dict(rows[0])) if rows else None
 
     @staticmethod
     def get_last_key_for_file(file_id):
-        """Identifică ultima cheie folosită pentru un fișier (pentru Decriptare automată)"""
         query = """SELECT key_id FROM Operations 
                    WHERE file_id = ? AND operation_type = 'Encryption' 
                    ORDER BY id DESC LIMIT 1"""
@@ -78,14 +78,21 @@ class CryptoRepository:
             return CryptoRepository.get_key_by_id(rows[0]['key_id'])
         return None
 
-    # --- MANAGEMENT OPERATIUNI SI AUDIT ---
     @staticmethod
     def log_operation(file_id, algo_id, framework_id, key_id, op_type, in_path, out_path):
         query = """INSERT INTO Operations (file_id, algorithm_id, framework_id, key_id, 
                        operation_type, input_path, output_path, status) 
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
         params = (file_id, algo_id, framework_id, key_id, op_type, in_path, out_path, 'Succes')
-        execute_query(query, params)
+
+        from app.db.database import get_connection
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        conn.commit()
+        op_id = cursor.lastrowid
+        conn.close()
+        return op_id
 
     @staticmethod
     def log_performance(perf: PerformanceModel):
@@ -93,7 +100,6 @@ class CryptoRepository:
         params = (perf.operation_id, perf.memory, perf.execution_time)
         execute_query(query, params)
 
-    # --- MANAGEMENT ALGORITMI ---
     @staticmethod
     def create_algorithm(algo: AlgorithmModel):
         query = "INSERT INTO Algorithms (name, type, key_size, mode) VALUES (?, ?, ?, ?)"
