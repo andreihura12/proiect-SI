@@ -4,6 +4,8 @@ import time
 import hashlib
 import psutil
 from tkinter import filedialog, messagebox, ttk
+import matplotlib.pyplot as plt
+
 from app.services.file_service import FileService
 from app.db.repository import CryptoRepository
 from app.models.file_model import FileModel
@@ -15,8 +17,8 @@ from app.crypto.openssl_handler import OpenSSLHandler
 class CryptoApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Crypto Manager Pro - Unified Performance Table")
-        self.root.geometry("1200x700")
+        self.root.title("Crypto Manager Pro - Milestone 3 Edition")
+        self.root.geometry("1250x800")
 
         self.file_service = FileService()
         self.repo = CryptoRepository()
@@ -49,12 +51,16 @@ class CryptoApp:
         tk.Button(frame_controls, text="Debug", command=self.debug_key_info, bg="#fff3cd").pack(side="left", padx=2)
 
         self.btn_crypt = tk.Button(frame_controls, text="Cripteaza", command=self.crypt_action, bg="#99ff99",
-                                   font=('Helvetica', 9, 'bold'), width=15)
-        self.btn_crypt.pack(side="left", padx=10)
+                                   font=('Helvetica', 9, 'bold'), width=12)
+        self.btn_crypt.pack(side="left", padx=5)
 
         self.btn_decrypt = tk.Button(frame_controls, text="Decripteaza", command=self.decrypt_action, bg="#99ccff",
-                                     font=('Helvetica', 9, 'bold'), width=15)
+                                     font=('Helvetica', 9, 'bold'), width=12)
         self.btn_decrypt.pack(side="left", padx=5)
+
+        self.btn_stats = tk.Button(frame_controls, text="Grafic performante", command=self.show_analytics,
+                                   bg="#ffcc99", font=('Helvetica', 9, 'bold'), width=15)
+        self.btn_stats.pack(side="left", padx=10)
 
         frame_bot = tk.LabelFrame(self.root, text="Vizualizare Date SQL & Monitorizare Performanta", padx=10, pady=10)
         frame_bot.pack(fill="both", expand=True, padx=20, pady=10)
@@ -64,22 +70,61 @@ class CryptoApp:
 
         for col in self.columns:
             self.tree.heading(col, text=col)
-            if col == "Hash":
-                width = 120
-            elif col == "Nume":
-                width = 200
-            else:
-                width = 90
+            width = 120 if col == "Hash" else 200 if col == "Nume" else 90
             self.tree.column(col, width=width, anchor="center")
 
         self.tree.pack(fill="both", expand=True, side="left")
-
         scrollbar = ttk.Scrollbar(frame_bot, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscroll=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
 
         self.btn_delete = tk.Button(self.root, text="Sterge Selectat", command=self.delete_selected, bg="#ff9999")
         self.btn_delete.pack(pady=10)
+
+    def show_analytics(self):
+        try:
+            from app.db.database import fetch_query
+            query = """
+                SELECT a.name as algo, f.name as framework, AVG(CAST(p.execution_time AS INT)) as avg_time
+                FROM Performance p
+                JOIN Operations o ON p.operation_id = o.id
+                JOIN Algorithms a ON o.algorithm_id = a.id
+                JOIN Frameworks f ON o.framework_id = f.id
+                GROUP BY a.name, f.name
+            """
+            rows = fetch_query(query)
+
+            if not rows:
+                messagebox.showwarning("Info", "Error")
+                return
+
+            data_map = {}
+            for r in rows:
+                algo = r['algo']
+                if algo not in data_map: data_map[algo] = {'OpenSSL': 0, 'Cryptography': 0}
+                f_name = 'OpenSSL' if 'OpenSSL' in r['framework'] else 'Cryptography'
+                data_map[algo][f_name] = r['avg_time']
+
+            algos = list(data_map.keys())
+            openssl_vals = [data_map[a]['OpenSSL'] for a in algos]
+            crypto_vals = [data_map[a]['Cryptography'] for a in algos]
+
+            x = range(len(algos))
+            width = 0.15
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.bar([i - width / 2 for i in x], openssl_vals, width, label='OpenSSL', color='#99ff99')
+            ax.bar([i + width / 2 for i in x], crypto_vals, width, label='Cryptography Lib', color='#99ccff')
+
+            ax.set_ylabel('Timp mediu (ms)')
+            ax.set_title('OpenSSL vs Cryptography Library')
+            ax.set_xticks(x)
+            ax.set_xticklabels(algos)
+            ax.legend()
+            plt.tight_layout()
+            plt.show()
+
+        except Exception as e:
+            messagebox.showerror("Eroare Grafic", f"Eroare la generarea graficului: {e}")
 
     def load_keys_to_combo(self):
         try:
@@ -91,32 +136,25 @@ class CryptoApp:
             print(f"Eroare chei: {e}")
 
     def refresh_table(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
+        for item in self.tree.get_children(): self.tree.delete(item)
         try:
             query = """
                 SELECT f.id, f.filename, f.status, f.file_type, f.size_bytes, f.hash, p.memory, p.execution_time
                 FROM Files f
-                LEFT JOIN (
-                    SELECT file_id, MAX(id) as last_op_id FROM Operations GROUP BY file_id
-                ) last_op ON f.id = last_op.file_id
+                LEFT JOIN (SELECT file_id, MAX(id) as last_op_id FROM Operations GROUP BY file_id) last_op ON f.id = last_op.file_id
                 LEFT JOIN Operations o ON last_op.last_op_id = o.id
                 LEFT JOIN Performance p ON o.id = p.operation_id
                 ORDER BY f.id ASC
             """
             from app.db.database import fetch_query
             rows = fetch_query(query)
-
             for r in rows:
                 ram = r['memory'] if r['memory'] else "-"
                 timp = r['execution_time'] if r['execution_time'] else "-"
                 h = r['hash'][:12] if r['hash'] else "-"
-
-                self.tree.insert("", "end", values=(
-                    r['id'], r['filename'], r['status'], r['file_type'],
-                    r['size_bytes'], h, ram, timp
-                ))
+                self.tree.insert("", "end",
+                                 values=(r['id'], r['filename'], r['status'], r['file_type'], r['size_bytes'], h, ram,
+                                         timp))
         except Exception as e:
             print(f"Eroare refresh: {e}")
 
@@ -125,19 +163,15 @@ class CryptoApp:
         if not selected_item:
             messagebox.showwarning("Atentie", "Selecteaza un fisier!")
             return
-
         file_id = self.tree.item(selected_item)['values'][0]
         algo_chosen = self.combo_algo.get()
         key_selection = self.combo_keys.get()
-
         try:
             process = psutil.Process(os.getpid())
             start_mem, start_time = process.memory_info().rss, time.time()
-
             file_record = self.repo.get_file_by_id(file_id)
             input_path = file_record.path
             key_id, framework_id, output_path = None, (1 if "OpenSSL" in algo_chosen else 2), ""
-
             existing_key = None
             if "ID:" in key_selection:
                 key_id = int(key_selection.split("|")[0].replace("ID:", "").strip())
@@ -151,7 +185,6 @@ class CryptoApp:
                     key_id = self.repo.create_key(
                         KeyModel(algorithm_id=1, key_name=f"AES_{file_id}", key_type="Symmetric", key_path=password,
                                  is_active=1))
-
             elif "RSA (OpenSSL)" == algo_chosen:
                 output_path = input_path + ".rsa"
                 if existing_key:
@@ -164,7 +197,6 @@ class CryptoApp:
                         KeyModel(algorithm_id=2, key_name=f"RSA_{file_id}", key_type="Asymmetric", key_path=priv_path,
                                  is_active=1))
                 self.openssl_handler.encrypt_rsa(input_path, output_path, pub_path)
-
             elif "AES (Cryptography Library)" == algo_chosen:
                 from cryptography.fernet import Fernet
                 output_path = input_path + ".crypt"
@@ -178,7 +210,6 @@ class CryptoApp:
                     key_id = self.repo.create_key(
                         KeyModel(algorithm_id=1, key_name=f"Fernet_{file_id}", key_type="Symmetric",
                                  key_path=key_val.decode(), is_active=1))
-
             elif "RSA (Cryptography Library)" == algo_chosen:
                 from cryptography.hazmat.primitives.asymmetric import padding
                 from cryptography.hazmat.primitives import hashes, serialization
@@ -206,17 +237,14 @@ class CryptoApp:
 
             exec_time = int((time.time() - start_time) * 1000)
             mem_used = max(0, int((psutil.Process(os.getpid()).memory_info().rss - start_mem) / 1024))
-
             file_hash = hashlib.sha256(open(output_path, "rb").read()).hexdigest()
             self.repo.update_file_status(file_id, f"Criptat ({algo_chosen})")
             self.repo.update_file_hash(file_id, file_hash)
-
             op_id = self.repo.log_operation(file_id, (1 if "AES" in algo_chosen else 2), framework_id, key_id,
                                             "Encryption", input_path, output_path)
             self.repo.log_performance(
                 PerformanceModel(operation_id=op_id, memory=str(mem_used), execution_time=str(exec_time)))
-
-            self.refresh_table()
+            self.refresh_table();
             self.load_keys_to_combo()
             messagebox.showinfo("Succes", f"Criptat în {exec_time}ms")
         except Exception as e:
@@ -224,22 +252,35 @@ class CryptoApp:
 
     def decrypt_action(self):
         selected_item = self.tree.selection()
-        if not selected_item: return
-        file_id = self.tree.item(selected_item)['values'][0]
-        status = self.tree.item(selected_item)['values'][2]
-        if "Necriptat" in status: return
+        if not selected_item:
+            messagebox.showwarning("Atentie", "Selecteaza un fisier!")
+            return
+        item_data = self.tree.item(selected_item)
+        file_id, status = item_data['values'][0], item_data['values'][2]
+        if "Necriptat" in status:
+            messagebox.showwarning("Info", "Fisierul nu este criptat.")
+            return
         try:
+            process = psutil.Process(os.getpid())
+            start_mem, start_time = process.memory_info().rss, time.time()
             key_record = self.repo.get_last_key_for_file(file_id)
             file_record = self.repo.get_file_by_id(file_id)
-            dec_path = os.path.splitext(file_record.path)[0] + "_restored" + os.path.splitext(file_record.path)[1]
+            original_path = file_record.path
+            dec_path = os.path.splitext(original_path)[0] + "_restored" + os.path.splitext(original_path)[1]
             if "OpenSSL" in status:
                 if "AES" in status:
-                    self.openssl_handler.decrypt_aes(file_record.path + ".enc", dec_path, key_record.key_path)
+                    self.openssl_handler.decrypt_aes(original_path + ".enc", dec_path, key_record.key_path)
                 else:
-                    self.openssl_handler.decrypt_rsa(file_record.path + ".rsa", dec_path, key_record.key_path)
+                    self.openssl_handler.decrypt_rsa(original_path + ".rsa", dec_path, key_record.key_path)
+            exec_time_ms = int((time.time() - start_time) * 1000)
+            mem_used_kb = max(0, int((process.memory_info().rss - start_mem) / 1024))
             self.repo.update_file_status(file_id, "Necriptat")
+            op_id = self.repo.log_operation(file_id, (1 if "AES" in status else 2), (1 if "OpenSSL" in status else 2),
+                                            key_record.id, "Decryption", original_path, dec_path)
+            self.repo.log_performance(
+                PerformanceModel(operation_id=op_id, memory=str(mem_used_kb), execution_time=str(exec_time_ms)))
             self.refresh_table()
-            messagebox.showinfo("Succes", "Fisier restaurat!")
+            messagebox.showinfo("Succes", f"Decriptare finalizata!\nDurata: {exec_time_ms}ms")
         except Exception as e:
             messagebox.showerror("Eroare", str(e))
 
@@ -254,7 +295,7 @@ class CryptoApp:
             info = f"ID: {key_data.id}\nNume: {key_data.key_name}\nTip: {key_data.key_type}\nPath: {key_data.key_path}"
             messagebox.showinfo("Debug Info", info)
         except Exception as e:
-            messagebox.showerror("Eroare", f"Nu s-au putut prelua detaliile: {e}")
+            messagebox.showerror("Eroare", str(e))
 
     def browse_and_save(self):
         path = filedialog.askopenfilename()
@@ -269,4 +310,3 @@ class CryptoApp:
         if selected_item:
             self.repo.delete_file(self.tree.item(selected_item)['values'][0])
             self.refresh_table()
-
